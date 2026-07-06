@@ -1,0 +1,23 @@
+{
+  "suite_name": "API Spec Generator Evaluator",
+  "target_prompt_path": "examples/system_prompt.txt",
+  "test_cases": [
+    {
+      "id": "TC_001",
+      "description": "Verify valid JSON output and parameter parsing",
+      "input_variables": {
+        "user_query": "Build a profile creation endpoint mapping email and phone."
+      },
+      "assertions": {
+        "expected_format": "json",
+        "required_keys": ["path", "method", "parameters"],
+        "banned_phrases": ["ERROR", "SOAP", "unsupported"]
+      },
+      "rubric": {
+        "metric": "technical_accuracy",
+        "criteria": "Does the generated payload schema correctly require string formats for email and phone numbers?",
+        "passing_threshold": 4
+      }
+    }
+  ]
+}
