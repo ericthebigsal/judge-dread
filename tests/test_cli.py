@@ -110,3 +110,66 @@ def test_build_results_skips_judge_when_no_rubric():
     assert results[0].judge_verdict is None
     assert results[0].status == "PASS"
     assert client.models.generate_content.call_count == 1
+
+
+def test_build_results_records_failure_when_model_returns_none_text():
+    suite = TestSuite.model_validate(
+        {
+            "suite_name": "Suite",
+            "target_prompt_path": "unused.txt",
+            "test_cases": [
+                {
+                    "id": "TC_004",
+                    "description": "Safety-blocked response",
+                    "input_variables": {"user_query": "build an endpoint"},
+                    "assertions": {
+                        "expected_format": "json",
+                    },
+                }
+            ],
+        }
+    )
+    template_text = "Task: ${user_query}"
+
+    client = Mock()
+    client.models.generate_content.return_value = _fake_generate_content_response(None)
+
+    results = build_results(suite, template_text, client)
+
+    assert len(results) == 1
+    assert results[0].status == "FAIL"
+    assert results[0].deterministic.failures
+
+
+def test_build_results_records_failure_when_judge_returns_no_verdict():
+    suite = TestSuite.model_validate(
+        {
+            "suite_name": "Suite",
+            "target_prompt_path": "unused.txt",
+            "test_cases": [
+                {
+                    "id": "TC_005",
+                    "description": "Judge fails to parse",
+                    "input_variables": {"user_query": "build an endpoint"},
+                    "rubric": {
+                        "metric": "technical_accuracy",
+                        "criteria": "Is the output high quality?",
+                        "passing_threshold": 4,
+                    },
+                }
+            ],
+        }
+    )
+    template_text = "Task: ${user_query}"
+
+    client = Mock()
+    client.models.generate_content.side_effect = [
+        _fake_generate_content_response("some output"),
+        SimpleNamespace(parsed=None),
+    ]
+
+    results = build_results(suite, template_text, client)
+
+    assert len(results) == 1
+    assert results[0].status == "FAIL"
+    assert results[0].deterministic.failures
