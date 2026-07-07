@@ -1,5 +1,8 @@
 # JudgeDread
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+
 A local-first, framework-less Python harness for catching AI prompt regressions before they ship — built entirely on Gemini's free tier, so running it costs nothing but rate-limit patience.
 
 ## Elevator pitch
