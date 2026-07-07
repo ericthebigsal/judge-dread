@@ -88,6 +88,10 @@ pytest -v
 
 All 26 tests pass with zero network access and zero API key — the CLI, engine, and evaluator tests all inject a mocked client. The only thing that touches the real API is the manual smoke-test step above.
 
+## License
+
+MIT — see [`LICENSE`](LICENSE).
+
 ## Further reading
 
 - [`docs/PRIMER.md`](docs/PRIMER.md) — a from-the-ground-up explainer on why AI prompt testing is hard and how JudgeDread's approach (deterministic + LLM-as-judge) addresses it, aimed at anyone with general programming background but no AI/ML background assumed.
