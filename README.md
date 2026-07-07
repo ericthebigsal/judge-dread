@@ -1,5 +1,6 @@
 # JudgeDread
 
+[![Tests](https://github.com/ericthebigsal/judge-dread/actions/workflows/tests.yml/badge.svg)](https://github.com/ericthebigsal/judge-dread/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
@@ -89,7 +90,7 @@ examples/         # a working prompt + test suite you can run immediately
 pytest -v
 ```
 
-All 26 tests pass with zero network access and zero API key — the CLI, engine, and evaluator tests all inject a mocked client. The only thing that touches the real API is the manual smoke-test step above.
+All 26 tests pass with zero network access and zero API key — the CLI, engine, and evaluator tests all inject a mocked client. The only thing that touches the real API is the manual smoke-test step above. This also means CI needs no secrets: [`.github/workflows/tests.yml`](.github/workflows/tests.yml) runs the full suite on every push and PR to `main`, on Python 3.10 and 3.12.
 
 ## License
 
