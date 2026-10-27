@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from judgedread.models import (
     DeterministicResult,
     JudgeVerdict,
+    Rubric,
     TestCase,
     TestCaseResult,
     TestSuite,
@@ -84,3 +85,10 @@ def test_result_models_hold_expected_shapes():
     )
     assert result.status == "PASS"
     assert result.judge_verdict.score == 5
+
+
+def test_rubric_criteria_accepts_list_of_lines():
+    rubric = Rubric.model_validate(
+        {"metric": "m", "criteria": ["Line one.", "Line two."], "passing_threshold": 4}
+    )
+    assert rubric.criteria == "Line one.\nLine two."
