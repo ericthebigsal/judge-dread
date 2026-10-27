@@ -12,7 +12,10 @@ from urllib.request import Request, urlopen
 from pydantic import ValidationError
 
 DEFAULT_HOST = "http://localhost:11434"
-DEFAULT_LOCAL_MODEL = "gemma3:4b"
+# Measured on an 8 GB M3: qwen2.5:3b follows "output only JSON" reliably but judges
+# inconsistently; gemma3:4b judges consistently but wraps JSON in markdown fences.
+DEFAULT_LOCAL_MODEL = "qwen2.5:3b"
+DEFAULT_LOCAL_JUDGE_MODEL = "gemma3:4b"
 
 
 class OllamaError(RuntimeError):

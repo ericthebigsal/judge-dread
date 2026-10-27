@@ -46,22 +46,23 @@ You should see a Rich table with one row (`TC_001`), a pass-rate line, and a new
 When you've used up the free tier, or just want to iterate without spending quota, run the suite on a local model through [Ollama](https://ollama.com) instead. Both calls go local: the prompt and the judge.
 
 ```bash
-# One-time setup: install Ollama, then download the default model (~3.3 GB)
-ollama pull gemma3:4b
+# One-time setup: install Ollama, then download the two default models (~5.2 GB total)
+ollama pull qwen2.5:3b   # runs your prompt
+ollama pull gemma3:4b    # judges rubrics
 
 # Run the suite locally (no GEMINI_API_KEY needed)
 judgedread examples/test_suite.json --local
 
-# Try a different Ollama model (implies --local)
-judgedread examples/test_suite.json --local-model mistral
+# Try different Ollama models (either flag implies --local)
+judgedread examples/test_suite.json --local-model mistral --local-judge-model mistral
 ```
 
-`gemma3:4b` is the default because it runs comfortably on a machine with 8 GB of memory. JudgeDread expects Ollama on `http://localhost:11434`. If it isn't running, or the model hasn't been downloaded, the run stops with exit code `2` and a message saying what to do.
+The defaults use a different model for each job, because on an 8 GB M3 neither small model did both well. `qwen2.5:3b` follows "output only JSON" instructions far more reliably, but as a judge it gave sound outputs a 3 about 40% of the time, with reasoning that was simply wrong. `gemma3:4b` judges consistently, but it wrapped JSON in markdown fences on every run. Ollama may swap the two models in and out of memory during a run, which costs a few seconds. JudgeDread expects Ollama on `http://localhost:11434`. If it isn't running, or a model hasn't been downloaded, the run stops with exit code `2` and a message saying what to do (`ollama pull <model>`).
 
 The judge still returns a structured `{score, reasoning}` verdict, because Ollama constrains its output to the same `JudgeVerdict` schema. Two things to keep in mind:
 
 - **A small local model is a different measuring instrument.** A 4B judge is less strict and less consistent than `gemini-2.5-flash`, so its scores aren't comparable to Gemini's. Use local mode to check that a suite runs and to catch obvious breakage. Don't treat it as a replacement for Gemini verdicts, and don't compare run history across the two.
-- **Small models follow formatting instructions less reliably.** For example, `gemma3:4b` sometimes wraps JSON in markdown fences even when the prompt forbids them. That fails `expected_format: "json"`, which is correct: the output really isn't bare JSON.
+- **Small models make real formatting mistakes, and the deterministic checks catch them.** In about a quarter of runs, `qwen2.5:3b` writes regex patterns with unescaped backslashes inside JSON strings (`"^\d{10,15}$"`), which is invalid JSON. `gemma3:4b` wraps its JSON in markdown fences. Both fail `expected_format: "json"`, and they should, because the output really isn't valid bare JSON. Expect the occasional local `FAIL` that Gemini wouldn't produce.
 
 ## Writing your own test suite
 
