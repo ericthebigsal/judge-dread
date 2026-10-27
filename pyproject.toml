@@ -1,7 +1,7 @@
 [project]
 name = "judgedread"
 version = "0.1.0"
-description = "Local-first AI evals and prompt regression framework, built on Gemini's free tier"
+description = "Local-first AI evals and prompt regression framework, built on Gemini's free tier, with an optional local Ollama mode"
 requires-python = ">=3.10"
 license = "MIT"
 dependencies = [

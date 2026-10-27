@@ -21,6 +21,7 @@ Teams shipping AI features usually test prompts by eyeballing a few outputs and 
 - **Regression tracking** — every run appends to `.eval_history.jsonl`; the next run diffs against the previous one and calls out, by test ID, any case that flipped from PASS to FAIL.
 - **Rich terminal report** — a clean table with status, latency, token usage, and both check results per test case.
 - **Zero billing risk** — runs on `gemini-2.5-flash` on the free tier. Once you hit the rate limit, calls fail with a 429; there is no path to an unexpected charge.
+- **Local mode** — `--local` runs both the prompt and the judge on a model served by [Ollama](https://ollama.com) on your own machine. No API key, no quota. See [Running locally](#running-locally).
 - **CI-friendly exit codes** — `judgedread` exits `0` when every case passes, `1` when any fails, and `2` on a usage error, so a prompt regression can fail a build.
 - **Fully testable offline** — every test in this repo mocks the Gemini client. You can clone this repo and run the test suite with no API key at all.
 
@@ -39,6 +40,29 @@ judgedread examples/test_suite.json
 ```
 
 You should see a Rich table with one row (`TC_001`), a pass-rate line, and a new `.eval_history.jsonl` file recording the run. The history file is written to the current directory; pass `--history PATH` to put it somewhere else.
+
+## Running locally
+
+When you've used up the free tier, or just want to iterate without spending quota, run the suite on a local model through [Ollama](https://ollama.com) instead. Both calls go local: the prompt and the judge.
+
+```bash
+# One-time setup: install Ollama, then download the two default models (~5.2 GB total)
+ollama pull qwen2.5:3b   # runs your prompt
+ollama pull gemma3:4b    # judges rubrics
+
+# Run the suite locally (no GEMINI_API_KEY needed)
+judgedread examples/test_suite.json --local
+
+# Try different Ollama models (either flag implies --local)
+judgedread examples/test_suite.json --local-model mistral --local-judge-model mistral
+```
+
+The defaults use a different model for each job, because on an 8 GB M3 neither small model did both well. `qwen2.5:3b` follows "output only JSON" instructions far more reliably, but as a judge it gave sound outputs a 3 about 40% of the time, with reasoning that was simply wrong. `gemma3:4b` judges consistently, but it wrapped JSON in markdown fences on every run. Ollama may swap the two models in and out of memory during a run, which costs a few seconds. JudgeDread expects Ollama on `http://localhost:11434`. If it isn't running, or a model hasn't been downloaded, the run stops with exit code `2` and a message saying what to do (`ollama pull <model>`).
+
+The judge still returns a structured `{score, reasoning}` verdict, because Ollama constrains its output to the same `JudgeVerdict` schema. Two things to keep in mind:
+
+- **A small local model is a different measuring instrument.** A 4B judge is less strict and less consistent than `gemini-2.5-flash`, so its scores aren't comparable to Gemini's. Use local mode to check that a suite runs and to catch obvious breakage. Don't treat it as a replacement for Gemini verdicts, and don't compare run history across the two.
+- **Small models make real formatting mistakes, and the deterministic checks catch them.** In about a quarter of runs, `qwen2.5:3b` writes regex patterns with unescaped backslashes inside JSON strings (`"^\d{10,15}$"`), which is invalid JSON. `gemma3:4b` wraps its JSON in markdown fences. Both fail `expected_format: "json"`, and they should, because the output really isn't valid bare JSON. Expect the occasional local `FAIL` that Gemini wouldn't produce.
 
 ## Writing your own test suite
 
@@ -328,10 +352,11 @@ Multiple *judges* are a different idea: several models score the same rubric and
 judgedread/
   models.py      # Pydantic schema: suite, test case, rubric, results
   engine.py      # prompt hydration + Gemini call + timing/tokens
+  ollama.py      # local Ollama client used by --local
   evaluators.py  # deterministic checks + LLM-as-judge
   report.py      # Rich table + history/regression tracking
   cli.py         # wiring: load suite -> run -> evaluate -> report
-tests/           # all mock the Gemini client, no API key needed
+tests/           # all mock the model client, no API key or Ollama needed
 examples/        # a working prompt + suite you can run immediately
 docs/            # primer, build notes, original design docs
 ```
