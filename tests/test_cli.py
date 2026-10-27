@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 from judgedread.cli import build_results, main
 from judgedread.models import JudgeVerdict, TestSuite
+from judgedread.ollama import OllamaError
 
 
 def _fake_generate_content_response(text: str):
@@ -233,3 +234,83 @@ def test_main_returns_1_when_any_case_fails(tmp_path, monkeypatch):
         code = main([str(suite_path), "--history", str(tmp_path / "h.jsonl")])
 
     assert code == 1
+
+
+def test_build_results_uses_given_model_for_prompt_and_judge():
+    suite = TestSuite.model_validate(
+        {
+            "suite_name": "Suite",
+            "target_prompt_path": "unused.txt",
+            "test_cases": [
+                {
+                    "id": "TC_006",
+                    "description": "Custom model",
+                    "input_variables": {"user_query": "build an endpoint"},
+                    "rubric": {"metric": "m", "criteria": "c", "passing_threshold": 4},
+                }
+            ],
+        }
+    )
+    client = Mock()
+    client.models.generate_content.side_effect = [
+        _fake_generate_content_response("out"),
+        SimpleNamespace(parsed=JudgeVerdict(score=5, reasoning="ok")),
+    ]
+
+    build_results(suite, "Task: ${user_query}", client, model="gemma3:4b")
+
+    models = [c.kwargs["model"] for c in client.models.generate_content.call_args_list]
+    assert models == ["gemma3:4b", "gemma3:4b"]
+
+
+def test_main_local_runs_on_ollama_without_api_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    suite_path = _write_suite(tmp_path)
+    client = Mock()
+    client.models.generate_content.return_value = _fake_generate_content_response("out")
+
+    with (
+        patch("judgedread.cli.OllamaClient", return_value=client),
+        patch("judgedread.cli.genai.Client") as gemini,
+    ):
+        code = main([str(suite_path), "--local", "--history", str(tmp_path / "h.jsonl")])
+
+    assert code == 0
+    gemini.assert_not_called()
+    client.check_model.assert_called_once_with("gemma3:4b")
+    assert client.models.generate_content.call_args.kwargs["model"] == "gemma3:4b"
+
+
+def test_main_local_model_overrides_default_model(tmp_path):
+    suite_path = _write_suite(tmp_path)
+    client = Mock()
+    client.models.generate_content.return_value = _fake_generate_content_response("out")
+
+    with patch("judgedread.cli.OllamaClient", return_value=client):
+        main(
+            [
+                str(suite_path),
+                "--local",
+                "--local-model",
+                "mistral",
+                "--history",
+                str(tmp_path / "h.jsonl"),
+            ]
+        )
+
+    client.check_model.assert_called_once_with("mistral")
+    assert client.models.generate_content.call_args.kwargs["model"] == "mistral"
+
+
+def test_main_local_returns_2_when_ollama_is_unavailable(tmp_path, capsys):
+    suite_path = _write_suite(tmp_path)
+    client = Mock()
+    client.check_model.side_effect = OllamaError("Ollama is not reachable")
+
+    with patch("judgedread.cli.OllamaClient", return_value=client):
+        code = main([str(suite_path), "--local"])
+
+    assert code == 2
+    assert "Ollama is not reachable" in capsys.readouterr().err
+    client.models.generate_content.assert_not_called()
