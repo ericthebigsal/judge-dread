@@ -51,6 +51,31 @@ A later cleanup pass resolved two of the rough edges originally listed above:
 
 The same pass made `target_prompt_path` resolve relative to the suite file instead of the current directory, and added ruff linting to CI.
 
+## Local mode (Ollama)
+
+The free tier that made Gemini the right default also became the bottleneck: at 20 requests a day, and two calls per judged case, smoke tests kept running out of quota. `--local` (PR #4) runs **both** calls, the prompt and the judge, on [Ollama](https://ollama.com) on the developer's machine, so a smoke test needs no Gemini at all. Gemini stays the default; local mode is opt-in.
+
+- **A stand-in client, not a backend abstraction.** `judgedread/ollama.py`'s `OllamaClient` implements just the slice of the google-genai client JudgeDread touches: `client.models.generate_content(model=..., contents=..., config=...)`, returning an object with `.text`, `.parsed`, and `.usage_metadata`. Because every call site already took the client as a parameter (see *Dependency injection* above), `engine.py` and `evaluators.py` didn't change at all. The only wiring is in `cli.py`, which picks the client and threads `model` / `judge_model` through `build_results()`. It uses stdlib `urllib`, so there's no new dependency.
+- **Structured output survives.** The judge's `response_schema` (the `JudgeVerdict` Pydantic model) is passed to Ollama's `format` field as a JSON schema, and the reply is validated back into a `JudgeVerdict`. A reply that doesn't validate becomes `parsed = None`, which hits the existing "judge did not return a parsable verdict" path and becomes a per-case `FAIL`, the same as on Gemini.
+- **Fail fast before the run.** `OllamaClient.check_model()` hits `/api/tags` before any test case runs. If Ollama isn't running or a model hasn't been pulled, the CLI exits `2` with the exact `ollama pull <model>` command. This is better than letting every case fail with a connection error.
+
+### Why two local models
+
+The target machine is an M3 with 8 GB of memory, which limits you to ~3–4B-parameter models. The plan was a single default model. Measurement killed that plan: across repeated runs of both example suites, neither small model did both jobs well.
+
+| | Runs the prompt | Judges |
+|---|---|---|
+| `gemma3:4b` | wrapped JSON in markdown fences, 6/6 runs | consistent 5/5, sound reasoning |
+| `qwen2.5:3b` | bare JSON, 6/6 runs | scored sound outputs 3/5 in 2 of 5 runs, with reasoning that was simply wrong |
+
+The qwen judge failures were checked by pairing each output with its score. The low scores didn't track weaker outputs. For example, it gave a correct E.164 phone pattern a 3 and said the field "should be replaced with a 'string' type" when it already was one. So the defaults are split: `qwen2.5:3b` runs the prompt and `gemma3:4b` judges, each overridable with `--local-model` / `--local-judge-model`. With the split, the judge scored 5/5 on every run. Ollama may swap the two models in and out of memory mid-run, costing a few seconds. That's acceptable for a smoke test. `qwen3:4b` was ruled out up front because it emits thinking text by default, which would land in the output the assertions check.
+
+### What was deliberately not done
+
+- **No fence-stripping or JSON repair in the harness.** `qwen2.5:3b` still fails the JSON check in roughly 1 run in 4, because it writes regex backslashes unescaped inside JSON strings (`"^\d{10,15}$"`). That's genuinely invalid JSON, and so is gemma's fenced output. Anything downstream that calls `json.loads` on this prompt's output would break the same way, and loosening the check would hide that failure on Gemini too. The example prompt wasn't changed to suit small models either, because the prompt is the thing under test.
+- **No mixing Gemini with local** (e.g. Gemini prompt + local judge), no automatic model downloads, no other runners (LM Studio etc.), and no retries.
+- **Local scores aren't comparable to Gemini's.** A 4B judge is a different and more lenient measuring instrument. Local mode is for "does the suite run and is anything obviously broken," not a replacement for Gemini verdicts. Run history isn't separated by backend, so don't read a PASS→FAIL flip across a backend switch as a regression.
+
 ## Testing philosophy
 
-All tests mock the Gemini client (`unittest.mock.Mock()` with hand-built fake responses) — there is no automated test that calls the real API. This was a deliberate tradeoff, confirmed during the final review: an automated live-API test would reintroduce exactly the cost/flakiness/rate-limit surface this project exists to avoid. The one place that touches the real API is a manual smoke-test step (`judgedread examples/test_suite.json` with a real `GEMINI_API_KEY` set), which is intentionally not part of `pytest`.
+All tests mock the Gemini client (`unittest.mock.Mock()` with hand-built fake responses) — there is no automated test that calls the real API. This was a deliberate tradeoff, confirmed during the final review: an automated live-API test would reintroduce exactly the cost/flakiness/rate-limit surface this project exists to avoid. The places that touch a real model are manual smoke-test steps, intentionally not part of `pytest`: `judgedread examples/test_suite.json` with a real `GEMINI_API_KEY` set, or `judgedread examples/test_suite.json --local` against Ollama. The Ollama tests follow the same rule and patch `urlopen`, so CI needs neither an API key nor a running Ollama.
