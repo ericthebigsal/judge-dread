@@ -21,7 +21,8 @@ Teams shipping AI features usually test prompts by eyeballing a few outputs and 
 - **Regression tracking** — every run appends to `.eval_history.jsonl`; the next run diffs against the previous one and calls out, by test ID, any case that flipped from PASS to FAIL.
 - **Rich terminal report** — a clean table with status, latency, token usage, and both check results per test case.
 - **Zero billing risk** — runs on `gemini-2.5-flash` on the free tier. Once you hit the rate limit, calls fail with a 429; there is no path to an unexpected charge.
-- **Fully testable offline** — every one of the 26 tests in this repo mocks the Gemini client. You can clone this repo and run the test suite with no API key at all.
+- **CI-friendly exit codes** — `judgedread` exits `0` when every case passes, `1` when any fails, and `2` on a usage error, so a prompt regression can fail a build.
+- **Fully testable offline** — every test in this repo mocks the Gemini client. You can clone this repo and run the test suite with no API key at all.
 
 ## Quick start
 
@@ -34,10 +35,10 @@ pip install -e ".[dev]"
 export GEMINI_API_KEY="AIza..."
 
 # 3. Run the example suite
-python -m judgedread.cli examples/test_suite.json
+judgedread examples/test_suite.json
 ```
 
-You should see a Rich table with one row (`TC_001`), a pass-rate line, and a new `.eval_history.jsonl` file recording the run.
+You should see a Rich table with one row (`TC_001`), a pass-rate line, and a new `.eval_history.jsonl` file recording the run. The history file is written to the current directory; pass `--history PATH` to put it somewhere else.
 
 ## Writing your own test suite
 
@@ -67,7 +68,7 @@ A test suite is a JSON file pointing at a prompt template plus a list of test ca
 }
 ```
 
-The prompt template file uses `${variable}` placeholders (Python's `string.Template` syntax), substituted from each test case's `input_variables` before the call is made. See `examples/system_prompt.txt` and `examples/test_suite.json` for a working reference.
+`target_prompt_path` is resolved relative to the suite file, so you can run a suite from any directory. The prompt template file uses `${variable}` placeholders (Python's `string.Template` syntax), substituted from each test case's `input_variables` before the call is made. See `examples/system_prompt.txt` and `examples/test_suite.json` for a working reference.
 
 `assertions` and `rubric` are both optional — a test case can run deterministic checks only, judge checks only, both, or (if you just want latency/token numbers) neither.
 
@@ -114,10 +115,19 @@ Two consequences follow from that design, and they shape everything below:
 ```json
 "rubric": {
   "metric": "technical_accuracy",
-  "criteria": "The user asked for a profile-creation endpoint that accepts email and phone. Score 5 if both fields are present, typed as strings, and each has a format or pattern constraint. Score 4 if both are present and typed as strings but only one has a constraint. Score 3 if both are present but neither has a constraint. Score 2 if either field is missing. Score 1 if the output is not an endpoint definition at all.",
+  "criteria": "...",
   "passing_threshold": 4
 }
 ```
+
+where the full `criteria` string is:
+
+> The user asked for a profile-creation endpoint that accepts email and phone.
+> Score 5 if both fields are present, typed as strings, and each has a format or pattern constraint.
+> Score 4 if both are present and typed as strings but only one has a constraint.
+> Score 3 if both are present but neither has a constraint.
+> Score 2 if either field is missing.
+> Score 1 if the output is not an endpoint definition at all.
 
 Now a 4 means something specific. When the score moves, you know what changed in the output.
 
@@ -140,12 +150,16 @@ A judge score is a noisy measurement. Treat it like one.
 **Read the reasoning, not just the number.** The one-sentence `reasoning` is how you tell "the judge caught a real defect" apart from "the judge misread the rubric". Right now the CLI table shows only the score, and `.eval_history.jsonl` records only PASS/FAIL per test ID. To see the reasoning, call the harness from Python:
 
 ```python
+from pathlib import Path
+
 from google import genai
 from judgedread.cli import build_results
 from judgedread.engine import load_prompt_template, load_test_suite
 
-suite = load_test_suite("examples/test_suite.json")
-results = build_results(suite, load_prompt_template(suite.target_prompt_path), genai.Client())
+suite_path = Path("examples/test_suite.json")
+suite = load_test_suite(suite_path)
+template = load_prompt_template(suite_path.parent / suite.target_prompt_path)
+results = build_results(suite, template, genai.Client())
 for r in results:
     if r.judge_verdict:
         print(r.id, r.judge_verdict.score, r.judge_verdict.reasoning)
@@ -179,8 +193,24 @@ The schema allows **one rubric per test case**. That's deliberate: each judge ca
 **How to do it today:** give each dimension its own test case with the same `input_variables`, a distinct ID, and a different rubric:
 
 ```json
-{ "id": "TC_001_accuracy", "input_variables": { "user_query": "..." }, "rubric": { "metric": "technical_accuracy", "criteria": "...", "passing_threshold": 4 } },
-{ "id": "TC_001_safety",   "input_variables": { "user_query": "..." }, "rubric": { "metric": "no_pii_leak",        "criteria": "...", "passing_threshold": 5 } }
+{
+  "id": "TC_001_accuracy",
+  "input_variables": { "user_query": "..." },
+  "rubric": {
+    "metric": "technical_accuracy",
+    "criteria": "...",
+    "passing_threshold": 4
+  }
+},
+{
+  "id": "TC_001_safety",
+  "input_variables": { "user_query": "..." },
+  "rubric": {
+    "metric": "no_pii_leak",
+    "criteria": "...",
+    "passing_threshold": 5
+  }
+}
 ```
 
 Each of these cases generates its own output, so the two rubrics grade two different samples of the same prompt, not the same text. That costs an extra generation call, and the two scores can disagree partly because of sampling variance. For catching regressions this is usually fine, since you care whether *each* dimension holds up, but keep it in mind when comparing the scores. Native multi-rubric support (several rubrics graded against one shared output) is a reasonable future extension of `TestCase`.
@@ -191,13 +221,14 @@ Multiple *judges* are a different idea: several models score the same rubric and
 
 ```
 judgedread/
-  models.py       # Pydantic schema: TestSuite, TestCase, Assertions, Rubric, results
-  engine.py        # prompt hydration + Gemini invocation + timing/token capture
-  evaluators.py     # deterministic checks + LLM-as-judge
-  report.py       # Rich table rendering + history/regression tracking
-  cli.py          # wiring: load suite -> run -> evaluate -> report
-tests/            # 26 tests, all mocking the Gemini client — no API key needed
-examples/         # a working prompt + test suite you can run immediately
+  models.py      # Pydantic schema: suite, test case, rubric, results
+  engine.py      # prompt hydration + Gemini call + timing/tokens
+  evaluators.py  # deterministic checks + LLM-as-judge
+  report.py      # Rich table + history/regression tracking
+  cli.py         # wiring: load suite -> run -> evaluate -> report
+tests/           # all mock the Gemini client, no API key needed
+examples/        # a working prompt + suite you can run immediately
+docs/            # primer, build notes, original design docs
 ```
 
 ## Testing
@@ -206,7 +237,13 @@ examples/         # a working prompt + test suite you can run immediately
 pytest -v
 ```
 
-All 26 tests pass with zero network access and zero API key — the CLI, engine, and evaluator tests all inject a mocked client. The only thing that touches the real API is the manual smoke-test step above. This also means CI needs no secrets: [`.github/workflows/tests.yml`](.github/workflows/tests.yml) runs the full suite on every push and PR to `main`, on Python 3.10 and 3.12.
+The tests run with zero network access and zero API key — the CLI, engine, and evaluator tests all inject a mocked client. The only thing that touches the real API is the manual smoke-test step above. This also means CI needs no secrets: [`.github/workflows/tests.yml`](.github/workflows/tests.yml) lints with [ruff](https://docs.astral.sh/ruff/) and runs the full suite on every push and PR to `main`, on Python 3.10, 3.12, and 3.13.
+
+To run the same lint checks locally:
+
+```bash
+ruff check . && ruff format --check .
+```
 
 ## License
 
@@ -216,4 +253,4 @@ MIT — see [`LICENSE`](LICENSE).
 
 - [`docs/PRIMER.md`](docs/PRIMER.md) — a from-the-ground-up explainer on why AI prompt testing is hard and how JudgeDread's approach (deterministic + LLM-as-judge) addresses it, aimed at anyone with general programming background but no AI/ML background assumed.
 - [`docs/BUILD_NOTES.md`](docs/BUILD_NOTES.md) — how this project was actually built: process, key decisions, and known rough edges.
-- [`proposal.md`](proposal.md) — the original design proposal this project was built from.
+- [`docs/design/`](docs/design/) — the original design proposal and the implementation plan this project was built from.

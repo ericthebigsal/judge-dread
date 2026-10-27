@@ -10,12 +10,12 @@ from judgedread.models import TestCase, TestSuite
 DEFAULT_MODEL = "gemini-2.5-flash"
 
 
-def load_test_suite(path: str) -> TestSuite:
+def load_test_suite(path: str | Path) -> TestSuite:
     data = json.loads(Path(path).read_text())
     return TestSuite.model_validate(data)
 
 
-def load_prompt_template(path: str) -> str:
+def load_prompt_template(path: str | Path) -> str:
     return Path(path).read_text()
 
 
@@ -23,9 +23,7 @@ def hydrate_prompt(template_text: str, input_variables: dict[str, str]) -> str:
     return Template(template_text).substitute(**input_variables)
 
 
-def invoke_model(
-    client, prompt: str, model: str = DEFAULT_MODEL
-) -> tuple[str, float, int, int]:
+def invoke_model(client, prompt: str, model: str = DEFAULT_MODEL) -> tuple[str, float, int, int]:
     start = time.perf_counter()
     response = client.models.generate_content(
         model=model,

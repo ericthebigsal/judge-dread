@@ -1,6 +1,6 @@
 {
   "suite_name": "API Spec Generator Evaluator",
-  "target_prompt_path": "examples/system_prompt.txt",
+  "target_prompt_path": "system_prompt.txt",
   "test_cases": [
     {
       "id": "TC_001",

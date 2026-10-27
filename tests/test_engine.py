@@ -30,9 +30,7 @@ def test_load_test_suite_parses_json_file(tmp_path):
             {
                 "suite_name": "Suite",
                 "target_prompt_path": "prompts/system_prompt.txt",
-                "test_cases": [
-                    {"id": "TC_001", "description": "d", "input_variables": {}}
-                ],
+                "test_cases": [{"id": "TC_001", "description": "d", "input_variables": {}}],
             }
         )
     )
@@ -96,9 +94,7 @@ def test_run_test_case_hydrates_then_invokes():
     )
     template_text = "Task: ${user_query}"
 
-    text, latency_ms, input_tokens, output_tokens = run_test_case(
-        client, test_case, template_text
-    )
+    text, latency_ms, input_tokens, output_tokens = run_test_case(client, test_case, template_text)
 
     assert text == "output text"
     _, kwargs = client.models.generate_content.call_args

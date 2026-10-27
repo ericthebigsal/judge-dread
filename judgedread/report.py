@@ -42,9 +42,7 @@ def render_report(
 
     console.print(table)
 
-    pass_rate = (
-        sum(1 for r in results if r.status == "PASS") / len(results) if results else 0.0
-    )
+    pass_rate = sum(1 for r in results if r.status == "PASS") / len(results) if results else 0.0
     console.print(f"Pass rate: {pass_rate:.0%}")
 
     _check_regression(pass_rate, results, history_path, console)
@@ -67,13 +65,10 @@ def _check_regression(
     last_record = json.loads(lines[-1])
     last_statuses = {r["id"]: r["status"] for r in last_record.get("results", [])}
 
-    flipped = [
-        r.id for r in results if last_statuses.get(r.id) == "PASS" and r.status == "FAIL"
-    ]
+    flipped = [r.id for r in results if last_statuses.get(r.id) == "PASS" and r.status == "FAIL"]
     if flipped:
         console.print(
-            f"[bold red]REGRESSION: previously passing tests now failing: "
-            f"{', '.join(flipped)}[/]"
+            f"[bold red]REGRESSION: previously passing tests now failing: {', '.join(flipped)}[/]"
         )
         return
 

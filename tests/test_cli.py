@@ -1,7 +1,8 @@
+import json
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
-from judgedread.cli import build_results
+from judgedread.cli import build_results, main
 from judgedread.models import JudgeVerdict, TestSuite
 
 
@@ -173,3 +174,62 @@ def test_build_results_records_failure_when_judge_returns_no_verdict():
     assert len(results) == 1
     assert results[0].status == "FAIL"
     assert results[0].deterministic.failures
+
+
+def _write_suite(tmp_path, rubric=None):
+    (tmp_path / "prompt.txt").write_text("Task: ${user_query}")
+    case = {"id": "TC_001", "description": "d", "input_variables": {"user_query": "q"}}
+    if rubric:
+        case["rubric"] = rubric
+    suite_path = tmp_path / "suite.json"
+    suite_path.write_text(
+        json.dumps(
+            {"suite_name": "Suite", "target_prompt_path": "prompt.txt", "test_cases": [case]}
+        )
+    )
+    return suite_path
+
+
+def test_main_returns_2_when_suite_file_is_missing(tmp_path, capsys):
+    assert main([str(tmp_path / "nope.json")]) == 2
+    assert "could not load suite" in capsys.readouterr().err
+
+
+def test_main_returns_2_when_api_key_is_missing(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    suite_path = _write_suite(tmp_path)
+
+    assert main([str(suite_path)]) == 2
+    assert "GEMINI_API_KEY" in capsys.readouterr().err
+
+
+def test_main_resolves_prompt_relative_to_suite_and_returns_0_on_pass(tmp_path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
+    monkeypatch.chdir(tmp_path.parent)
+    suite_path = _write_suite(tmp_path)
+    client = Mock()
+    client.models.generate_content.return_value = _fake_generate_content_response("out")
+
+    with patch("judgedread.cli.genai.Client", return_value=client):
+        code = main([str(suite_path), "--history", str(tmp_path / "h.jsonl")])
+
+    assert code == 0
+    assert client.models.generate_content.call_args.kwargs["contents"] == "Task: q"
+
+
+def test_main_returns_1_when_any_case_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "fake")
+    suite_path = _write_suite(
+        tmp_path, rubric={"metric": "m", "criteria": "c", "passing_threshold": 4}
+    )
+    client = Mock()
+    client.models.generate_content.side_effect = [
+        _fake_generate_content_response("out"),
+        SimpleNamespace(parsed=JudgeVerdict(score=2, reasoning="weak")),
+    ]
+
+    with patch("judgedread.cli.genai.Client", return_value=client):
+        code = main([str(suite_path), "--history", str(tmp_path / "h.jsonl")])
+
+    assert code == 1

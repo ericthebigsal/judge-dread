@@ -2,10 +2,8 @@ import pytest
 from pydantic import ValidationError
 
 from judgedread.models import (
-    Assertions,
     DeterministicResult,
     JudgeVerdict,
-    Rubric,
     TestCase,
     TestCaseResult,
     TestSuite,
@@ -30,7 +28,10 @@ def test_parses_full_test_suite():
                 },
                 "rubric": {
                     "metric": "technical_accuracy",
-                    "criteria": "Does the generated payload schema correctly require string formats for email and phone numbers?",
+                    "criteria": (
+                        "Does the generated payload schema correctly require string "
+                        "formats for email and phone numbers?"
+                    ),
                     "passing_threshold": 4,
                 },
             }
