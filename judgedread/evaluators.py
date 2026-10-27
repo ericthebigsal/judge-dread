@@ -42,9 +42,7 @@ JUDGE_PROMPT_TEMPLATE = (
 )
 
 
-def evaluate_judge(
-    client, rubric: Rubric, output: str, model: str = JUDGE_MODEL
-) -> JudgeVerdict:
+def evaluate_judge(client, rubric: Rubric, output: str, model: str = JUDGE_MODEL) -> JudgeVerdict:
     prompt = JUDGE_PROMPT_TEMPLATE.format(criteria=rubric.criteria, output=output)
     response = client.models.generate_content(
         model=model,

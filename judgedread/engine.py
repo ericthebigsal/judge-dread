@@ -23,9 +23,7 @@ def hydrate_prompt(template_text: str, input_variables: dict[str, str]) -> str:
     return Template(template_text).substitute(**input_variables)
 
 
-def invoke_model(
-    client, prompt: str, model: str = DEFAULT_MODEL
-) -> tuple[str, float, int, int]:
+def invoke_model(client, prompt: str, model: str = DEFAULT_MODEL) -> tuple[str, float, int, int]:
     start = time.perf_counter()
     response = client.models.generate_content(
         model=model,

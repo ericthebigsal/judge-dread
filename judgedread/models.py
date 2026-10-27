@@ -1,10 +1,8 @@
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 
 class Assertions(BaseModel):
-    expected_format: Optional[str] = None
+    expected_format: str | None = None
     required_keys: list[str] = Field(default_factory=list)
     banned_phrases: list[str] = Field(default_factory=list)
 
@@ -20,7 +18,7 @@ class TestCase(BaseModel):
     description: str
     input_variables: dict[str, str] = Field(default_factory=dict)
     assertions: Assertions = Field(default_factory=Assertions)
-    rubric: Optional[Rubric] = None
+    rubric: Rubric | None = None
 
 
 class TestSuite(BaseModel):
@@ -32,7 +30,7 @@ class TestSuite(BaseModel):
 class DeterministicResult(BaseModel):
     passed: bool
     failures: list[str] = Field(default_factory=list)
-    parsed_json: Optional[dict] = None
+    parsed_json: dict | None = None
 
 
 class JudgeVerdict(BaseModel):
@@ -48,5 +46,5 @@ class TestCaseResult(BaseModel):
     input_tokens: int
     output_tokens: int
     deterministic: DeterministicResult
-    judge_verdict: Optional[JudgeVerdict] = None
+    judge_verdict: JudgeVerdict | None = None
     raw_output: str
