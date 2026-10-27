@@ -97,12 +97,13 @@ The naive version of step 4 compares only the *aggregate* pass rate (e.g., "80% 
 JudgeDread's pipeline, end to end, is now hopefully legible as an application of all five ideas above:
 
 ```
-test_suite.json  →  hydrate prompt template (§1: templating around non-determinism)
-                  →  call Gemini            (§1: the non-deterministic step)
-                  →  deterministic checks   (§2a: cheap, exact, structural)
-                  →  LLM-as-judge checks    (§2b + §3: expensive, fuzzy, semantic)
-                       ↳ via structured output (§4: no text-parsing fragility)
-                  →  Rich report + history  (§5: regression tracking by test ID)
+test_suite.json
+  → hydrate prompt template  (§1: templating)
+  → call Gemini              (§1: the non-deterministic step)
+  → deterministic checks     (§2a: cheap, exact, structural)
+  → LLM-as-judge checks      (§2b + §3: expensive, fuzzy, semantic)
+      ↳ structured output    (§4: no text-parsing fragility)
+  → Rich report + history    (§5: regression tracking by test ID)
 ```
 
 Nothing here is exotic — the whole project is a composition of five well-understood ideas, wired together in about 250 lines of Python across five files. That's a deliberate design choice, not an accident: a small, legible pipeline that you can read end-to-end in ten minutes is more trustworthy than a framework that hides the same five ideas behind abstraction.

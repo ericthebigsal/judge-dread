@@ -115,10 +115,19 @@ Two consequences follow from that design, and they shape everything below:
 ```json
 "rubric": {
   "metric": "technical_accuracy",
-  "criteria": "The user asked for a profile-creation endpoint that accepts email and phone. Score 5 if both fields are present, typed as strings, and each has a format or pattern constraint. Score 4 if both are present and typed as strings but only one has a constraint. Score 3 if both are present but neither has a constraint. Score 2 if either field is missing. Score 1 if the output is not an endpoint definition at all.",
+  "criteria": "...",
   "passing_threshold": 4
 }
 ```
+
+where the full `criteria` string is:
+
+> The user asked for a profile-creation endpoint that accepts email and phone.
+> Score 5 if both fields are present, typed as strings, and each has a format or pattern constraint.
+> Score 4 if both are present and typed as strings but only one has a constraint.
+> Score 3 if both are present but neither has a constraint.
+> Score 2 if either field is missing.
+> Score 1 if the output is not an endpoint definition at all.
 
 Now a 4 means something specific. When the score moves, you know what changed in the output.
 
@@ -184,8 +193,24 @@ The schema allows **one rubric per test case**. That's deliberate: each judge ca
 **How to do it today:** give each dimension its own test case with the same `input_variables`, a distinct ID, and a different rubric:
 
 ```json
-{ "id": "TC_001_accuracy", "input_variables": { "user_query": "..." }, "rubric": { "metric": "technical_accuracy", "criteria": "...", "passing_threshold": 4 } },
-{ "id": "TC_001_safety",   "input_variables": { "user_query": "..." }, "rubric": { "metric": "no_pii_leak",        "criteria": "...", "passing_threshold": 5 } }
+{
+  "id": "TC_001_accuracy",
+  "input_variables": { "user_query": "..." },
+  "rubric": {
+    "metric": "technical_accuracy",
+    "criteria": "...",
+    "passing_threshold": 4
+  }
+},
+{
+  "id": "TC_001_safety",
+  "input_variables": { "user_query": "..." },
+  "rubric": {
+    "metric": "no_pii_leak",
+    "criteria": "...",
+    "passing_threshold": 5
+  }
+}
 ```
 
 Each of these cases generates its own output, so the two rubrics grade two different samples of the same prompt, not the same text. That costs an extra generation call, and the two scores can disagree partly because of sampling variance. For catching regressions this is usually fine, since you care whether *each* dimension holds up, but keep it in mind when comparing the scores. Native multi-rubric support (several rubrics graded against one shared output) is a reasonable future extension of `TestCase`.
@@ -196,14 +221,14 @@ Multiple *judges* are a different idea: several models score the same rubric and
 
 ```
 judgedread/
-  models.py       # Pydantic schema: TestSuite, TestCase, Assertions, Rubric, results
-  engine.py        # prompt hydration + Gemini invocation + timing/token capture
-  evaluators.py     # deterministic checks + LLM-as-judge
-  report.py       # Rich table rendering + history/regression tracking
-  cli.py          # wiring: load suite -> run -> evaluate -> report
-tests/            # all mock the Gemini client — no API key needed
-examples/         # a working prompt + test suite you can run immediately
-docs/             # primer, build notes, and original design docs
+  models.py      # Pydantic schema: suite, test case, rubric, results
+  engine.py      # prompt hydration + Gemini call + timing/tokens
+  evaluators.py  # deterministic checks + LLM-as-judge
+  report.py      # Rich table + history/regression tracking
+  cli.py         # wiring: load suite -> run -> evaluate -> report
+tests/           # all mock the Gemini client, no API key needed
+examples/        # a working prompt + suite you can run immediately
+docs/            # primer, build notes, original design docs
 ```
 
 ## Testing
