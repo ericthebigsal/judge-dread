@@ -14,6 +14,8 @@ class Rubric(BaseModel):
 
 
 class TestCase(BaseModel):
+    __test__ = False  # not a pytest test class, despite the name
+
     id: str
     description: str
     input_variables: dict[str, str] = Field(default_factory=dict)
@@ -22,6 +24,8 @@ class TestCase(BaseModel):
 
 
 class TestSuite(BaseModel):
+    __test__ = False  # not a pytest test class, despite the name
+
     suite_name: str
     target_prompt_path: str
     test_cases: list[TestCase]
@@ -39,6 +43,8 @@ class JudgeVerdict(BaseModel):
 
 
 class TestCaseResult(BaseModel):
+    __test__ = False  # not a pytest test class, despite the name
+
     id: str
     description: str
     status: str
