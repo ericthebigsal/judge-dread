@@ -52,7 +52,7 @@ A test suite is a JSON file pointing at a prompt template plus a list of test ca
     {
       "id": "TC_001",
       "description": "What this case checks",
-      "input_variables": { "user_query": "..." },
+      "input_variables": { "user_query": "Build a login endpoint." },
       "assertions": {
         "expected_format": "json",
         "required_keys": ["path", "method"],
@@ -60,7 +60,7 @@ A test suite is a JSON file pointing at a prompt template plus a list of test ca
       },
       "rubric": {
         "metric": "technical_accuracy",
-        "criteria": "Does the output correctly do X?",
+        "criteria": "Is the method POST with username and password params?",
         "passing_threshold": 4
       }
     }
@@ -110,24 +110,22 @@ Two consequences follow from that design, and they shape everything below:
 
 **Ask about observable facts, not impressions.** "Is this a good API spec?" gives you noise. "Does the spec mark `email` as `format: email` and `phone` as a string with a pattern or format?" gives you signal. If you can't say what evidence in the output would earn a 5, the judge can't either.
 
-**Anchor the scale.** This is the biggest improvement you can make. Spell out what the key score levels look like, especially the levels on either side of your threshold:
+**Anchor the scale.** This is the biggest improvement you can make. Spell out what the key score levels look like, especially the levels on either side of your threshold. Long criteria are easier to read as a list of lines, which JudgeDread joins into one string before sending it to the judge:
 
 ```json
 "rubric": {
   "metric": "technical_accuracy",
-  "criteria": "...",
+  "criteria": [
+    "The user asked for a profile endpoint accepting email and phone.",
+    "5: both are strings and each has a format or pattern constraint.",
+    "4: both are strings but only one has a constraint.",
+    "3: both are present as strings with no constraint.",
+    "2: either field is missing.",
+    "1: the output is not an endpoint definition at all."
+  ],
   "passing_threshold": 4
 }
 ```
-
-where the full `criteria` string is:
-
-> The user asked for a profile-creation endpoint that accepts email and phone.
-> Score 5 if both fields are present, typed as strings, and each has a format or pattern constraint.
-> Score 4 if both are present and typed as strings but only one has a constraint.
-> Score 3 if both are present but neither has a constraint.
-> Score 2 if either field is missing.
-> Score 1 if the output is not an endpoint definition at all.
 
 Now a 4 means something specific. When the score moves, you know what changed in the output.
 
@@ -158,7 +156,8 @@ from judgedread.engine import load_prompt_template, load_test_suite
 
 suite_path = Path("examples/test_suite.json")
 suite = load_test_suite(suite_path)
-template = load_prompt_template(suite_path.parent / suite.target_prompt_path)
+prompt_path = suite_path.parent / suite.target_prompt_path
+template = load_prompt_template(prompt_path)
 results = build_results(suite, template, genai.Client())
 for r in results:
     if r.judge_verdict:
@@ -166,6 +165,102 @@ for r in results:
 ```
 
 **Compare by test ID across runs.** The regression check in `report.py` diffs the latest run against the previous one by test ID and reports any case that went from PASS to FAIL. A rubric failure on a case that used to pass, after a prompt edit, is the signal this tool exists to produce. But it's only meaningful if you've already confirmed (with the repeat runs above) that the case is stable when nothing changes.
+
+### A worked example, end to end
+
+This walkthrough uses [`examples/rubric_example.json`](examples/rubric_example.json). All of the outputs and verdicts below are real `gemini-2.5-flash` responses, copied word for word.
+
+**1. Decide what "good" means.** The prompt turns a request into an API spec. For a signup endpoint, the assertions can already check that the output is JSON with `path`, `method`, and `parameters`. What they can't check is whether the spec actually *validates* the email and phone fields. That's a judgment call, so it gets a rubric.
+
+**2. Write the test case.** The user's request goes in `input_variables`. The rubric restates that request, because the judge never sees the input. It grades one dimension, gives every score a concrete meaning, and tells the judge not to reward length:
+
+```json
+{
+  "id": "TC_SIGNUP_FIELDS",
+  "description": "Signup endpoint constrains email and phone formats",
+  "input_variables": {
+    "user_query": "Build a signup endpoint that takes an email and a phone number."
+  },
+  "assertions": {
+    "expected_format": "json",
+    "required_keys": ["path", "method", "parameters"]
+  },
+  "rubric": {
+    "metric": "field_validation",
+    "criteria": [
+      "The user asked for a signup endpoint taking an email and a phone.",
+      "Grade only how well the parameters constrain those two fields.",
+      "Do not reward length, extra fields, or formatting.",
+      "5: both are strings and each has a format or pattern constraint.",
+      "4: both are strings but only one has a format or pattern.",
+      "3: both are present as strings with no format or pattern.",
+      "2: either field is missing or not typed as a string.",
+      "1: the output is not an endpoint definition."
+    ],
+    "passing_threshold": 4
+  }
+}
+```
+
+**3. Run it.**
+
+```bash
+judgedread examples/rubric_example.json
+```
+
+With the original prompt, which only asked for `{"type": "string"}` per field, the model returned this (reformatted for reading):
+
+```json
+{
+  "path": "/signup",
+  "method": "POST",
+  "parameters": {
+    "email": { "type": "string" },
+    "phone_number": { "type": "string" }
+  }
+}
+```
+
+The deterministic checks **passed**: it's valid JSON and has every required key. The judge returned `score: 3`, with this `reasoning`:
+
+> Both email and phone number are present as strings, but neither parameter includes a format or pattern constraint for validation.
+
+3 is below the threshold of 4, so the case **FAILED**. That's the point of the rubric: the output was well-formed but wrong, and only a semantic check could tell. The reasoning names the exact anchor that applied ("3: … no format or pattern"), which confirms the judge read the rubric the way it was meant.
+
+**4. Make sure the failure is real.** Before changing anything, the case was run again with nothing changed. It scored 3 every time, with the same reasoning. A consistent score means a real defect in the prompt, not judge noise.
+
+**5. Fix the prompt, not the rubric.** The rubric described a requirement we actually have, so the prompt was what needed to change. [`examples/system_prompt.txt`](examples/system_prompt.txt) now allows `format` and `pattern` in its output shape and adds:
+
+```
+For any field with a well-known shape (email, phone number, date, URL),
+include a "format" or "pattern" that constrains it.
+```
+
+**6. Run it again.** The new output:
+
+```json
+{
+  "path": "/signup",
+  "method": "POST",
+  "parameters": {
+    "email": { "type": "string", "format": "email" },
+    "phone_number": {
+      "type": "string",
+      "pattern": "^\\+?[1-9]\\d{1,14}$"
+    }
+  }
+}
+```
+
+and the verdict was `score: 5`, with this `reasoning`:
+
+> Both the 'email' and 'phone_number' parameters are defined as strings with appropriate format or pattern constraints.
+
+**PASS.** Across repeat runs the model wrote a *different* phone regex each time (`^\+[1-9]\d{1,14}$`, `^\+?[0-9]{7,15}$`, …), but the score held at 5. That's the payoff of grading properties ("has a pattern constraint") instead of exact text: the test is stable even though the output isn't.
+
+**7. Know what a rate limit looks like.** Each judged case makes two API calls: one to generate and one to judge. At the time of writing, the free tier allowed `gemini-2.5-flash` **5 requests per minute and 20 per day**. That's 10 judged test-case runs a day, and this walkthrough used all of them. When you hit either limit, the case `FAIL`s and its deterministic column reads `test case errored: 429 RESOURCE_EXHAUSTED`. That's the quota, not a regression. For the per-minute limit, wait a minute and rerun. For the daily limit, the error says how long until it resets. Plan repeat runs and calibration with that budget in mind.
+
+**8. What could come next.** The last pattern, `^\+?[0-9]{7,15}$`, accepts almost any string of digits, and the rubric still gave it a 5, because "has a pattern" is all the rubric asks for. If loose patterns ever matter to you, tighten the rubric first (for example, "4: has a pattern, but it would accept obviously invalid numbers"), get a new baseline against the current prompt, and only then change the prompt. The next section covers that.
 
 ### How to evolve a rubric over time
 
@@ -195,19 +290,29 @@ The schema allows **one rubric per test case**. That's deliberate: each judge ca
 ```json
 {
   "id": "TC_001_accuracy",
-  "input_variables": { "user_query": "..." },
+  "description": "Profile endpoint types its fields correctly",
+  "input_variables": { "user_query": "Build a user profile endpoint." },
   "rubric": {
     "metric": "technical_accuracy",
-    "criteria": "...",
+    "criteria": [
+      "The user asked for an endpoint that creates a user profile.",
+      "5: method is POST and every parameter has a sensible type.",
+      "3: method is POST but some parameter types are missing or wrong.",
+      "1: method is not POST or there are no parameters."
+    ],
     "passing_threshold": 4
   }
 },
 {
   "id": "TC_001_safety",
-  "input_variables": { "user_query": "..." },
+  "description": "Profile endpoint doesn't expose secrets",
+  "input_variables": { "user_query": "Build a user profile endpoint." },
   "rubric": {
-    "metric": "no_pii_leak",
-    "criteria": "...",
+    "metric": "no_secret_fields",
+    "criteria": [
+      "5: no parameter is a password, token, or other secret.",
+      "1: any parameter is a password, token, or other secret."
+    ],
     "passing_threshold": 5
   }
 }

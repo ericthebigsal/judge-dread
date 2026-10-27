@@ -1,0 +1,35 @@
+{
+  "suite_name": "Rubric Walkthrough",
+  "target_prompt_path": "system_prompt.txt",
+  "test_cases": [
+    {
+      "id": "TC_SIGNUP_FIELDS",
+      "description": "Signup endpoint constrains email and phone formats",
+      "input_variables": {
+        "user_query": "Build a signup endpoint that takes an email and a phone number."
+      },
+      "assertions": {
+        "expected_format": "json",
+        "required_keys": [
+          "path",
+          "method",
+          "parameters"
+        ]
+      },
+      "rubric": {
+        "metric": "field_validation",
+        "criteria": [
+          "The user asked for a signup endpoint taking an email and a phone.",
+          "Grade only how well the parameters constrain those two fields.",
+          "Do not reward length, extra fields, or formatting.",
+          "5: both are strings and each has a format or pattern constraint.",
+          "4: both are strings but only one has a format or pattern.",
+          "3: both are present as strings with no format or pattern.",
+          "2: either field is missing or not typed as a string.",
+          "1: the output is not an endpoint definition."
+        ],
+        "passing_threshold": 4
+      }
+    }
+  ]
+}

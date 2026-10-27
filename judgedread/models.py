@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Assertions(BaseModel):
@@ -11,6 +11,12 @@ class Rubric(BaseModel):
     metric: str
     criteria: str
     passing_threshold: int
+
+    @field_validator("criteria", mode="before")
+    @classmethod
+    def _join_criteria_lines(cls, value):
+        # JSON strings can't span lines, so long criteria may be written as a list of lines.
+        return "\n".join(value) if isinstance(value, list) else value
 
 
 class TestCase(BaseModel):
